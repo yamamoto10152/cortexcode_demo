@@ -70,7 +70,6 @@ jobs:
 
       - uses: snowflakedb/snowflake-cli-action@v2.0
         with:
-          cli-version: "latest"
           default-config-file-path: "config.toml"
 
       - name: Generate Snowflake CLI config
