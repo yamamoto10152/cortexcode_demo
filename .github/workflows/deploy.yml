@@ -115,15 +115,3 @@ jobs:
               MAX_INSTANCES = 1;
           "
 
-      - name: Wait for service ready
-        run: |
-          for i in $(seq 1 30); do
-            STATUS=$(snow sql -q "CALL SYSTEM\$GET_SERVICE_STATUS('${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_service');" --format json 2>/dev/null | grep -o '"READY"' || true)
-            if [ -n "$STATUS" ]; then
-              echo "Service is READY"
-              break
-            fi
-            echo "Waiting for service... attempt $i/30"
-            sleep 10
-          done
-
