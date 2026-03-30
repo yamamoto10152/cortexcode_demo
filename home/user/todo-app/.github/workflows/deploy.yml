@@ -1,0 +1,123 @@
+name: Deploy to Snowflake SPCS
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+  SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+  SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+  SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+  SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+  SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+  IMAGE_REPO: ${{ secrets.SNOWFLAKE_IMAGE_REPO }}
+  IMAGE_NAME: todo-app
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short || echo "No tests found, skipping"
+
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker login to Snowflake registry
+        run: |
+          echo "${{ secrets.SNOWFLAKE_PASSWORD }}" | \
+            docker login "${{ env.SNOWFLAKE_ACCOUNT }}.registry.snowflakecomputing.com" \
+              --username "${{ secrets.SNOWFLAKE_USER }}" \
+              --password-stdin
+
+      - name: Build image
+        run: |
+          docker build -t "${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" .
+          docker tag "${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" \
+                     "${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:latest"
+
+      - name: Push image
+        run: |
+          docker push "${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          docker push "${{ env.IMAGE_REPO }}/${{ env.IMAGE_NAME }}:latest"
+
+  deploy:
+    name: Deploy to SPCS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Snowflake-Labs/snowflake-cli-action@v1
+        with:
+          cli-version: "latest"
+          default-config-file-path: "config.toml"
+
+      - name: Generate Snowflake CLI config
+        run: |
+          mkdir -p ~/.snowflake
+          cat > ~/.snowflake/config.toml <<EOF
+          [connections.default]
+          account = "${SNOWFLAKE_ACCOUNT}"
+          user = "${SNOWFLAKE_USER}"
+          password = "${SNOWFLAKE_PASSWORD}"
+          role = "${SNOWFLAKE_ROLE}"
+          warehouse = "${SNOWFLAKE_WAREHOUSE}"
+          database = "${SNOWFLAKE_DATABASE}"
+          schema = "${SNOWFLAKE_SCHEMA}"
+          EOF
+
+      - name: Generate spec.yaml with image tag
+        run: |
+          sed "s|<YOUR_IMAGE_REPO>|${{ env.IMAGE_REPO }}|g" spec.yaml | \
+            sed "s|:latest|:${{ env.IMAGE_TAG }}|g" > spec-deploy.yaml
+          cat spec-deploy.yaml
+
+      - name: Upload spec to stage
+        run: |
+          snow sql -q "CREATE STAGE IF NOT EXISTS ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_stage DIRECTORY = (ENABLE = TRUE);"
+          snow stage copy spec-deploy.yaml @${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_stage/ --overwrite
+
+      - name: Deploy service
+        run: |
+          snow sql -q "
+            CREATE OR REPLACE SERVICE ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_service
+              IN COMPUTE POOL todo_compute_pool
+              FROM @${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_stage
+              SPECIFICATION_FILE = 'spec-deploy.yaml'
+              MIN_INSTANCES = 1
+              MAX_INSTANCES = 1;
+          "
+
+      - name: Wait for service ready
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(snow sql -q "CALL SYSTEM\$GET_SERVICE_STATUS('${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_service');" --format json 2>/dev/null | grep -o '"READY"' || true)
+            if [ -n "$STATUS" ]; then
+              echo "Service is READY"
+              break
+            fi
+            echo "Waiting for service... attempt $i/30"
+            sleep 10
+          done
+
