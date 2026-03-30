@@ -105,8 +105,9 @@ jobs:
 
       - name: Deploy service
         run: |
+          snow sql -q "DROP SERVICE IF EXISTS ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_service;"
           snow sql -q "
-            CREATE OR REPLACE SERVICE ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_service
+            CREATE SERVICE ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_service
               IN COMPUTE POOL todo_compute_pool
               FROM @${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.todo_stage
               SPECIFICATION_FILE = 'spec-deploy.yaml'
