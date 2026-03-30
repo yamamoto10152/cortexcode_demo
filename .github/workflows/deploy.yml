@@ -68,9 +68,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: snowflakedb/snowflake-cli-action@v2.0.1
+      - uses: Snowflake-Labs/snowflake-cli-action@v1
         with:
           cli-version: "latest"
+          default-config-file-path: "config.toml"
 
       - name: Generate Snowflake CLI config
         run: |
