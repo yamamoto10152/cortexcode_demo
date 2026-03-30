@@ -1,7 +1,7 @@
 spec:
   containers:
     - name: todo-app
-      image: <YOUR_IMAGE_REPO>/todo-app:latest
+      image: ${IMAGE_REPO}/todo-app:${IMAGE_TAG}
       readinessProbe:
         port: 8080
         path: /healthcheck
