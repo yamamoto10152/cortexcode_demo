@@ -86,6 +86,9 @@ jobs:
           schema = "${SNOWFLAKE_SCHEMA}"
           EOF
 
+          chmod 0600 ~/.snowflake/config.toml
+
+
       - name: Generate spec.yaml with image tag
         run: |
           sudo apt-get update
