@@ -1,0 +1,18 @@
+spec:
+  containers:
+    - name: todo-app
+      image: <YOUR_IMAGE_REPO>/todo-app:latest
+      readinessProbe:
+        port: 8080
+        path: /healthcheck
+      resources:
+        requests:
+          memory: 256M
+          cpu: 0.5
+        limits:
+          memory: 512M
+          cpu: 1
+  endpoints:
+    - name: todoendpoint
+      port: 8080
+      public: true
