@@ -29,6 +29,7 @@ def create_todo():
         "id": todo_id,
         "title": data.get("title", ""),
         "done": False,
+        "due_date": data.get("due_date", ""),
     }
     todos[todo_id] = todo
     return jsonify(todo), 201
@@ -41,6 +42,7 @@ def update_todo(todo_id):
     data = request.get_json()
     todos[todo_id]["title"] = data.get("title", todos[todo_id]["title"])
     todos[todo_id]["done"] = data.get("done", todos[todo_id]["done"])
+    todos[todo_id]["due_date"] = data.get("due_date", todos[todo_id]["due_date"])
     return jsonify(todos[todo_id])
 
 
